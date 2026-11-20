@@ -24,4 +24,8 @@ mkdir benchmark/machines/kali/tmp_script
 echo "AUTOPENBENCH=$(pwd)/benchmark" > .env
 echo "KALISCRIPTS=$(pwd)/benchmark/machines/kali/tmp_script" >> .env
 
-pip3 install -e .
+if [ ! -d .venv ]; then
+  python3 -m venv .venv
+fi
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -e .

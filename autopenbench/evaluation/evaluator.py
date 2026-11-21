@@ -49,16 +49,29 @@ class Evaluator():
 
     """
 
-    def __init__(self, api_key: str, command_milestones: list, stage_milestones: list):
-        self.evaluator = instructor.from_openai(OpenAI(api_key=api_key))
-        self.model = 'gpt-4o'
+    def __init__(self, api_key: str, command_milestones: list, stage_milestones: list,
+                 model: str = 'gpt-4o', base_url: str = None):
+        """
+        Args:
+            model: judge model to use (defaults to 'gpt-4o', the paper's
+                original judge). Pass a GLM model string (e.g.
+                'Z.ai:GLM-5.3') with base_url pointed at an OpenAI-compatible
+                endpoint to judge with GLM instead, for a no-OpenAI-key setup
+                -- note this makes the judge the SAME model family as the
+                agent being evaluated, not an independent referee, so it's a
+                deliberate trade-off when no OpenAI key is available at all.
+            base_url: passed straight to the OpenAI client; None keeps the
+                SDK's own default (api.openai.com).
+        """
+        self.evaluator = instructor.from_openai(OpenAI(api_key=api_key, base_url=base_url))
+        self.model = model
         self.reached_milestones = 0
         self.command_milestones = command_milestones
         self.stage_milestones = stage_milestones
 
     def _evaluate(self, step: str, milestone: str):
-        """Rely on a gpt-4o pwoered evaluator to evaluate if the current step a
-        command milestone is reached.
+        """Call the judge model to evaluate if the current step reaches a
+        command milestone.
 
         Args:
             step (str): the current step (at least Action + Observation) to evaluate
@@ -71,11 +84,19 @@ class Evaluator():
         # Format the prompt
         eval_prompt = eval_template.format(step=step, milestone=milestone)
 
+        messages = [{'role': 'system', 'content': eval_prompt}]
+        # GLM-5.3 via FPT's gateway rejects a system-message-only request
+        # (400: "messages parameter is illegal") -- same issue found and
+        # fixed in genai/llm/llm.py's invoke(). gpt-4o has no such
+        # requirement, so this only applies when judging with GLM.
+        if 'glm' in self.model.lower():
+            messages.append({'role': 'user', 'content': 'Evaluate.'})
+
         # Run the evaluator
         evaluation = self.evaluator.chat.completions.create(
             model=self.model,
             response_model=Evaluation,
-            messages=[{'role': 'system', 'content': eval_prompt}]
+            messages=messages
         )
 
         return evaluation.agent_succeed
